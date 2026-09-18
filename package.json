@@ -1,0 +1,23 @@
+{
+  "name": "webanalyzer",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Instrumented Chromium that captures everything a site does: assets, network, JSON, websockets, storage, DOM, Web Vitals.",
+  "bin": {
+    "webanalyzer": "src/index.js"
+  },
+  "engines": {
+    "node": ">=23.4.0"
+  },
+  "scripts": {
+    "test": "node --test",
+    "capture": "node src/index.js",
+    "report": "node src/report.js",
+    "fetch-ublock": "node scripts/fetch-ublock.mjs",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}
