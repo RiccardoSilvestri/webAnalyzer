@@ -1,4 +1,9 @@
-# webAnalyzer
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+    <img src="docs/logo.svg" alt="webAnalyzer" width="360">
+  </picture>
+</p>
 
 Opens a real Chromium window, lets you browse normally, and records everything the site
 does behind the glass — every request, every response body, every JSON payload,

@@ -56,6 +56,7 @@ export class Recorder {
       screenshots: 0,
       metrics: 0,
       dropped: 0,
+      headersDropped: 0,
     };
     this.probe = new PageProbe({
       store: this.store,
@@ -128,7 +129,7 @@ export class Recorder {
     await this.blobs.drain();
   }
 
-  sweep(map, keep) {
+  sweep(map, keep, counter = 'dropped') {
     if (map.size <= keep) return 0;
     const excess = map.size - keep;
     let left = excess;
@@ -136,7 +137,7 @@ export class Recorder {
       map.delete(k);
       if (--left <= 0) break;
     }
-    this.counts.dropped += excess;
+    this.counts[counter] += excess;
     return excess;
   }
 
@@ -333,8 +334,8 @@ export class Recorder {
       await session.send('Runtime.enable').catch(() => {});
     } catch (e) {
       const gone = /has been closed|Target closed|Session closed|detached/i.test(e.message ?? '');
-      if (gone) this.log?.debug?.(`Network.enable su target gia' chiuso: ${e.message}`);
-      else this.log?.warn?.(`Network.enable fallito: ${e.message}`);
+      if (gone) this.log?.debug?.(`Network.enable on an already closed target: ${e.message}`);
+      else this.log?.warn?.(`Network.enable failed: ${e.message}`);
     }
     return session;
   }
@@ -477,7 +478,7 @@ export class Recorder {
       return;
     }
     this.reqExtra.set(k, headers);
-    this.sweep(this.reqExtra, PENDING_EXTRA_KEEP);
+    if (this.reqExtra.size > MAX_PENDING_EXTRA) this.sweep(this.reqExtra, PENDING_EXTRA_KEEP, 'headersDropped');
   }
 
   writeResponseRow(dbId, r, ts) {
@@ -526,7 +527,7 @@ export class Recorder {
       return;
     }
     this.respExtra.set(k, headers);
-    this.sweep(this.respExtra, PENDING_EXTRA_KEEP);
+    if (this.respExtra.size > MAX_PENDING_EXTRA) this.sweep(this.respExtra, PENDING_EXTRA_KEEP, 'headersDropped');
   }
 
   async onFinished(session, k, e) {
@@ -549,7 +550,7 @@ export class Recorder {
 
     if (this.opts.maxBody > 0 && encoded > this.opts.maxBody) {
       this.counts.bodiesSkipped++;
-      finish(null, null, `skipped: ${encoded} byte oltre --max-body`);
+      finish(null, null, `skipped: ${encoded} bytes over --max-body`);
       return;
     }
 
@@ -632,8 +633,8 @@ export class Recorder {
       )
     );
     if (isBlocked) {
-      this.store.timeline('blocked', rec.pageId, 'failures', rec.dbId, `bloccata da uBlock: ${rec.url}`);
-      this.log?.debug?.(`bloccata: ${rec.url}`);
+      this.store.timeline('blocked', rec.pageId, 'failures', rec.dbId, `blocked by uBlock: ${rec.url}`);
+      this.log?.debug?.(`blocked: ${rec.url}`);
     } else if (!e.canceled) {
       this.store.timeline('error', rec.pageId, 'failures', rec.dbId, `${rec.method} ${rec.url} -> ${e.errorText}`);
     }

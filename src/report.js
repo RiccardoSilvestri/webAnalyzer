@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { SCHEMA, VIEWS, applyPragmas, ensureSchema } from './db.js';
-import { fmtBytes, fmtDuration, fmtMs, registrableDomain } from './util.js';
+import { fmtBytes, fmtMs, registrableDomain } from './util.js';
 
 const SENSITIVE_TERMS = [
   'token', 'auth', 'passw', 'secret', 'api_key', 'api-key', 'apikey', 'session', 'jwt', 'bearer',
@@ -11,7 +11,6 @@ const SENSITIVE_TERMS = [
   'otp', 'refresh', 'access', 'private', 'licen', 'pin',
 ];
 const AUTH_QUERY = /(api[_-]?key|apikey|access[_-]?token|token|auth|key|sig|signature|session|password|jwt)/i;
-const BLOCKED_PRED = `COALESCE(f.blocked, CASE WHEN f.error_text LIKE '%BLOCKED_BY_CLIENT%' THEN 1 ELSE 0 END)`;
 
 function esc(v) {
   if (v == null) return '';
@@ -26,13 +25,32 @@ function table(headers, rows) {
   return `${head}\n${sep}\n${body}\n`;
 }
 
-const warnings = [];
+// Diagnostics are scoped to the database they came from, so generating two reports in the
+// same process never mixes their warnings.
+const warningsByDb = new WeakMap();
+
+function sink(db) {
+  let list = warningsByDb.get(db);
+  if (!list) {
+    list = [];
+    warningsByDb.set(db, list);
+  }
+  return list;
+}
+
+export function warningsFor(db) {
+  return [...sink(db)];
+}
+
+function note(db, e, sql) {
+  sink(db).push(`query failed (${e.message}): ${sql.replace(/\s+/g, ' ').trim().slice(0, 120)}…`);
+}
 
 function q(db, sql, params = []) {
   try {
     return db.prepare(sql).all(...params);
   } catch (e) {
-    warnings.push(`query failed (${e.message}): ${sql.replace(/\s+/g, ' ').trim().slice(0, 120)}…`);
+    note(db, e, sql);
     return [];
   }
 }
@@ -41,7 +59,7 @@ function one(db, sql, params = []) {
   try {
     return db.prepare(sql).get(...params) ?? {};
   } catch (e) {
-    warnings.push(`query failed (${e.message}): ${sql.replace(/\s+/g, ' ').trim().slice(0, 120)}…`);
+    note(db, e, sql);
     return {};
   }
 }
@@ -854,13 +872,14 @@ export function buildReport(db, outDir, precollected = null) {
     )
   );
 
-  if (warnings.length) {
+  const diagnostics = warningsFor(db);
+  if (diagnostics.length) {
     L.push('');
     L.push(h('Report diagnostics'));
     L.push('');
     L.push('These queries did not succeed: the corresponding sections are incomplete.');
     L.push('');
-    for (const w of warnings) L.push(`- ${w}`);
+    for (const w of diagnostics) L.push(`- ${w}`);
   }
 
   return L.join('\n');
@@ -1155,7 +1174,6 @@ WHERE blobs_fts MATCH '"/api/' AND b.mime LIKE '%javascript%' LIMIT 20;
 export function generateAll(outDir) {
   const dbPath = path.join(outDir, 'session.db');
   if (!fs.existsSync(dbPath)) throw new Error(`No database in ${dbPath}`);
-  warnings.length = 0;
   const db = new DatabaseSync(dbPath);
   applyPragmas(db);
   ensureSchema(db);
@@ -1181,7 +1199,7 @@ export function generateAll(outDir) {
         pages: d.pages,
         vitals: d.vitals,
         security_findings: securityFindings(d).map(([severity, area, detail]) => ({ severity, area, detail })),
-        warnings: [...warnings],
+        warnings: warningsFor(db),
         artifacts: {
           database: 'session.db',
           blobs: 'blobs/',
@@ -1202,7 +1220,7 @@ export function generateAll(outDir) {
   return {
     report: path.join(outDir, 'REPORT.md'),
     guide: path.join(outDir, 'LLM_GUIDE.md'),
-    warnings: [...warnings],
+    warnings: warningsFor(db),
   };
 }
 

@@ -153,7 +153,7 @@ export function fmtDuration(sec) {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-export function compileFilter(patterns, { name = 'filtro' } = {}) {
+export function compileFilter(patterns, { name = 'filter' } = {}) {
   if (!patterns?.length) return null;
   const res = [];
   for (const p of patterns) {

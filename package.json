@@ -15,9 +15,13 @@
     "capture": "node src/index.js",
     "report": "node src/report.js",
     "fetch-ublock": "node scripts/fetch-ublock.mjs",
-    "postinstall": "playwright install chromium"
+    "postinstall": "playwright install chromium",
+    "lint": "eslint ."
   },
   "dependencies": {
     "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0"
   }
 }

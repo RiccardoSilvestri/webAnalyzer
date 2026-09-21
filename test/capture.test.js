@@ -174,3 +174,26 @@ describe('Limiter', () => {
     assert.ok(limiter.peak >= 4);
   });
 });
+
+describe('Recorder header buffers', () => {
+  it('counts evicted header events apart from dropped requests', () => {
+    const rec = makeRecorder();
+    fill(rec.records, 30);
+    fill(rec.reqExtra, 30);
+
+    rec.sweep(rec.records, 20);
+    rec.sweep(rec.reqExtra, 20, 'headersDropped');
+
+    assert.equal(rec.counts.dropped, 10, 'only real requests count as dropped');
+    assert.equal(rec.counts.headersDropped, 10);
+  });
+
+  it('holds early header events until their request shows up', () => {
+    const rec = makeRecorder();
+
+    rec.onRequestExtra('s1:1', { headers: { 'x-a': '1' } });
+
+    assert.equal(rec.reqExtra.size, 1);
+    assert.equal(rec.counts.headersDropped, 0, 'a small backlog is normal, not a loss');
+  });
+});

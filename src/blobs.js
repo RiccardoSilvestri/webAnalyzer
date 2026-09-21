@@ -63,11 +63,12 @@ export class BlobStore {
   constructor(
     outDir,
     stmts,
-    { previewChars = 2000, maxTextBytes = 24 * 1024 * 1024, writeConcurrency = 16, seenCap = 200000 } = {}
+    { previewChars = 2000, maxTextBytes = 24 * 1024 * 1024, writeConcurrency = 16, seenCap = 200000, log = null } = {}
   ) {
     this.root = path.join(outDir, 'blobs');
     this.outDir = outDir;
     this.stmts = stmts;
+    this.log = log;
     this.previewChars = previewChars;
     this.maxTextBytes = maxTextBytes;
     this.seenCap = seenCap;
@@ -82,12 +83,25 @@ export class BlobStore {
       bytesDeduped: 0,
       writeErrors: 0,
       writeQueuePeak: 0,
+      dbErrors: 0,
     };
     fs.mkdirSync(this.root, { recursive: true });
   }
 
   relFor(hash, mime) {
     return path.join('blobs', hash.slice(0, 2), `${hash}.${extFor(mime)}`);
+  }
+
+  // put() runs inside synchronous CDP event handlers, so a failing statement must be
+  // counted rather than thrown: losing a blobs row is survivable, losing the capture is not.
+  #db(label, fn) {
+    try {
+      return fn();
+    } catch (e) {
+      this.stats.dbErrors++;
+      this.log?.debug?.(`blob ${label}: ${e.message}`);
+      return null;
+    }
   }
 
   #remember(hash) {
@@ -146,7 +160,7 @@ export class BlobStore {
       };
     }
 
-    const known = Boolean(this.stmts.hasBlob.get(hash));
+    const known = Boolean(this.#db('hasBlob', () => this.stmts.hasBlob.get(hash)));
     const pending = known && fs.existsSync(abs) ? null : this.#enqueueWrite(hash, abs, buf);
 
     if (known) {
@@ -156,17 +170,21 @@ export class BlobStore {
       const preview = textual
         ? truncate(text ?? decodeUtf8(buf.subarray(0, PREVIEW_SOURCE_BYTES)) ?? '', this.previewChars)
         : null;
-      this.stmts.insertBlob.run({
-        hash,
-        size: buf.length,
-        mime: mime || null,
-        is_text: textual ? 1 : 0,
-        path: rel,
-        preview,
-        created_at: nowIso(),
-      });
-      this.stats.stored++;
-      this.stats.bytesStored += buf.length;
+      const wrote = this.#db('insertBlob', () =>
+        this.stmts.insertBlob.run({
+          hash,
+          size: buf.length,
+          mime: mime || null,
+          is_text: textual ? 1 : 0,
+          path: rel,
+          preview,
+          created_at: nowIso(),
+        })
+      );
+      if (wrote) {
+        this.stats.stored++;
+        this.stats.bytesStored += buf.length;
+      }
     }
 
     this.#remember(hash);

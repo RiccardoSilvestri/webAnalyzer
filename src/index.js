@@ -196,7 +196,7 @@ function parseArgs(argv) {
         rest.push(a);
     }
   }
-  if (rest.length > 1) fail(`Troppi indirizzi: ${rest.join(' ')}`);
+  if (rest.length > 1) fail(`Too many addresses: ${rest.join(' ')}`);
   o.url = rest[0] ?? null;
   try {
     o.includeFilter = compileFilter(o.include, { name: '--include' });
@@ -293,12 +293,12 @@ async function checkUblock(context, log, expectedId, timeoutMs = 15000) {
     return { active: false, reason: 'service worker did not start', expectedId };
   }
 
-  const label = `${found.name || 'estensione'} ${found.version}`.trim();
+  const label = `${found.name || 'extension'} ${found.version}`.trim();
   if (!found.rulesets?.length) {
     log.warn(`  uBlock: ${label} active but no ruleset enabled — filters are not applied.`);
     return { active: false, reason: 'no ruleset enabled', extensionId: found.id, name: found.name };
   }
-  log.info(`  ublock  ATTIVO — ${label}, ${found.rulesets.length} ruleset: ${found.rulesets.join(', ')}`);
+  log.info(`  ublock  ACTIVE — ${label}, ${found.rulesets.length} ruleset: ${found.rulesets.join(', ')}`);
   return { active: true, extensionId: found.id, name: found.name, version: found.version, rulesets: found.rulesets };
 }
 
@@ -373,8 +373,7 @@ function dirSize(dir, { skip = [] } = {}) {
       else if (e.isFile()) {
         try {
           total += fs.statSync(p).size;
-        } catch {
-            }
+        } catch {}
       }
     }
   };
@@ -436,7 +435,7 @@ async function main() {
   const db = openDb(outDir);
   const batch = new WriteBatch(db, { onError: (e) => log.debug(`transaction: ${e.message}`) });
   const stmts = prepare(db, batch);
-  const blobs = new BlobStore(outDir, stmts);
+  const blobs = new BlobStore(outDir, stmts, { log });
 
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const ublockDir = path.resolve(moduleDir, '..', 'extensions', 'ublock-origin-lite');
@@ -445,8 +444,8 @@ async function main() {
   log.info(`webAnalyzer`);
   log.info(`  target  ${opts.url}`);
   log.info(`  output  ${outDir}`);
-  log.info(`  profilo ${profileDir}`);
-  log.info(`  browser ${opts.realChrome ? 'Chrome vero' : 'Chromium interno'}`);
+  log.info(`  profile ${profileDir}`);
+  log.info(`  browser ${opts.realChrome ? 'real Chrome' : 'bundled Chromium'}`);
   log.info(
     `  tls     ${opts.insecureTls ? 'invalid certificates accepted (self-signed, expired, wrong hostname)' : 'standard validation (--strict-tls)'}`
   );
@@ -590,7 +589,7 @@ async function main() {
     process.on('SIGTERM', () => finish('SIGTERM'));
     context.on('close', () => {
       browserAlive = false;
-      finish('browser chiuso');
+      finish('browser closed');
     });
     if (opts.timeout > 0) setTimeout(() => finish(`timeout ${opts.timeout}s`), opts.timeout * 1000);
   });
@@ -705,6 +704,7 @@ async function main() {
     log.warn(`  ${rec.store.errors} failed writes: ${worst.map(([k, n]) => `${k} x${n}`).join(', ')}`);
   }
   if (c.dropped) log.warn(`  ${c.dropped} requests dropped because the in-memory buffers filled up`);
+  if (c.headersDropped) log.warn(`  ${c.headersDropped} early header events discarded before their request arrived`);
   log.info('');
   log.info(`  ${path.join(outDir, 'REPORT.md')}`);
   log.info(`  ${path.join(outDir, 'LLM_GUIDE.md')}`);
